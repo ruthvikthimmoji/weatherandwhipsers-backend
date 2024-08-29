@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
+    "go.mongodb.org/mongo-driver/bson/primitive"
     "go.mongodb.org/mongo-driver/mongo"
     "go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -30,8 +31,9 @@ func main() {
 
 	// Routes
 	app.Get("/", hello)
-	app.Get("/api/users", getUsers) // Add the GET /users route
-	app.Post("/api/users", postUsers) // Add the POST /users route
+	app.Get("/api/users", getUsers) 
+	app.Post("/api/users", postUsers) 
+	app.Delete("/api/users", deleteUser) 
 
 	// Start server
 	log.Fatal(app.Listen(":3000"))
@@ -94,5 +96,54 @@ func postUsers(c *fiber.Ctx) error {
     return c.Status(fiber.StatusOK).JSON(fiber.Map{
         "message": "User added to the database",
         "insertedID": insertResult.InsertedID,
+    })
+}
+
+// Handler for DELETE /users/:id
+func deleteUser(c *fiber.Ctx) error {
+    // Connect to MongoDB
+    client := mongoConnection()
+    collection := client.Database("usersDB").Collection("users")
+
+    // Parse the request body to get the user ID
+    var requestBody struct {
+        ID string `json:"_id"`
+    }
+
+    if err := c.BodyParser(&requestBody); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "Failed to parse request body",
+        })
+    }
+
+    // Convert the ID to an ObjectID (required for MongoDB)
+    objID, err := primitive.ObjectIDFromHex(requestBody.ID)
+    if err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "Invalid user ID format",
+        })
+    }
+
+    // Define the filter for the document to delete
+    filter := bson.M{"_id": objID}
+
+    // Delete the user from the database
+    deleteResult, err := collection.DeleteOne(context.Background(), filter)
+    if err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "Failed to delete user from the database",
+        })
+    }
+
+    // Check if the user was found and deleted
+    if deleteResult.DeletedCount == 0 {
+        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+            "message": "User not found",
+        })
+    }
+
+    // Return a success response
+    return c.Status(fiber.StatusOK).JSON(fiber.Map{
+        "message": "User successfully deleted",
     })
 }
